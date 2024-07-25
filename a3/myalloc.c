@@ -112,9 +112,8 @@ void* allocate_worst_fit(int size) {
 
 void* allocate(int size) {
     // if size needed larger than available memory
-    if ((size) > allocator.available){
+    if ((size) > allocator.available)
         return NULL;
-    }
 
     void* ptr = NULL;
 
