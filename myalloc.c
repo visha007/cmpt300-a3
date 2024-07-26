@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "myalloc.h"
 #include "list.h"
 
@@ -13,6 +14,7 @@ struct Myalloc {
     struct Node* freeBlocks;
     int available;
     int used;
+    pthread_mutex_t lock;
 };
 struct Myalloc allocator;
 
@@ -25,12 +27,14 @@ void initialize_allocator(int size, enum AllocationAlgorithm algorithm) {
     listInsertHead(&allocator.freeBlocks, listCreateNode(allocator.memory, size));
     allocator.available = size;
     allocator.used = 0;
+    pthread_mutex_init(&allocator.lock, NULL);
 }
 
 void destroy_allocator() {
     free(allocator.memory);
     listFreeList(&allocator.allocatedBlocks);
     listFreeList(&allocator.freeBlocks);
+    pthread_mutex_destroy(&allocator.lock);
 }
 
 void* allocate_first_fit(int size) {
@@ -111,12 +115,11 @@ void* allocate_worst_fit(int size) {
 }
 
 void* allocate(int size) {
-    // if size needed larger than available memory
-    if ((size) > allocator.available)
-        return NULL;
+    if (size > allocator.available) return NULL;
+
+    pthread_mutex_lock(&allocator.lock); // Lock the mutex
 
     void* ptr = NULL;
-
     switch (allocator.algorithm) {
         case FIRST_FIT:
             ptr = allocate_first_fit(size);
@@ -132,66 +135,43 @@ void* allocate(int size) {
             break;
     }
 
-    /*if (ptr != NULL) {
-        struct Node* block = listCreateNode(ptr, size);
-        listInsertTail(&allocator.allocatedBlocks, block);
-        allocator.available -= size;
-        allocator.used += size;
-    }*/
-
     if (ptr != NULL) {
-        // Create a new node for the allocated block
         struct Node* block = listCreateNode(ptr, size);
-
-        // Insert the new node into the allocated list
         if (allocator.allocatedBlocks == NULL) {
             allocator.allocatedBlocks = block;
         } else {
             struct Node* temp = allocator.allocatedBlocks;
             listInsertTail(&allocator.allocatedBlocks, block);
         }
-
         allocator.available -= size;
         allocator.used += size;
     }
 
+    pthread_mutex_unlock(&allocator.lock); // Unlock the mutex
+
     return ptr;
 }
 
-/*void deallocate(void* ptr) {
-    assert(ptr != NULL);
-    struct Node* target = listFindNode(allocator.allocatedBlocks, ptr);
-    struct Node* freeBlock = listCreateNode(target->block, target->size);
-
-    mergeFreeBlocks(freeBlock);
-
-    allocator.available += target->size;
-    allocator.used -= target->size;
-    listDeleteNode(&allocator.allocatedBlocks, target);
-}*/
-
 void deallocate(void* ptr) {
-    if (ptr == NULL) 
-        return;
+    if (ptr == NULL) return;
 
-    // Adjust the pointer to get the original memory block start (including header)
-    // void* memory_block = ptr - sizeof(size_t);
+    pthread_mutex_lock(&allocator.lock); // Lock the mutex
 
     struct Node* target = listFindNode(allocator.allocatedBlocks, ptr);
     if (target == NULL) {
         printf("Attempt to deallocate a non-allocated block! Exiting program!\n");
+        pthread_mutex_unlock(&allocator.lock); // Unlock the mutex before returning
         return;
     }
 
     struct Node* freeBlock = listCreateNode(target->block, target->size);
     mergeFreeBlocks(freeBlock);
 
-    // Update allocator's available and used memory
     allocator.available += target->size;
     allocator.used -= target->size;
-
-    // Remove the target node from the allocated blocks list
     listDeleteNode(&allocator.allocatedBlocks, target);
+
+    pthread_mutex_unlock(&allocator.lock); // Unlock the mutex
 }
 
 void mergeFreeBlocks(struct Node* block) {
@@ -236,8 +216,9 @@ void mergeFreeBlocks(struct Node* block) {
 }
 
 int compact_allocation(void** before, void** after) {
-    int compactedSize = 0;
+    pthread_mutex_lock(&allocator.lock); // Lock the mutex
 
+    int compactedSize = 0;
     store_allocation_state(before);
 
     if (allocator.used != 0) {
@@ -245,8 +226,9 @@ int compact_allocation(void** before, void** after) {
     }
 
     compactedSize = allocator.available;
-
     store_allocation_state(after);
+
+    pthread_mutex_unlock(&allocator.lock); // Unlock the mutex
 
     return compactedSize;
 }

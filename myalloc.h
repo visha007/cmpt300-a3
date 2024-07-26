@@ -1,10 +1,10 @@
 #ifndef __MYALLOC_H__
 #define __MYALLOC_H__
 
-enum AllocationAlgorithm { 
+enum AllocationAlgorithm {
     FIRST_FIT, 
     BEST_FIT, 
-    WORST_FIT 
+    WORST_FIT
 };
 
 void initialize_allocator(int size, enum AllocationAlgorithm algorithm);
